@@ -1,8 +1,8 @@
+import { User } from "../../../../entities/User"
 import { ActionsWithToken } from "../../../../types"
-import { isTokenInDB, isTokenValid } from "../fields/token"
+import { isTokenInDB } from "../fields/token"
 
-export const validateAccountActivation = async (token: string, secret: string) => {
-    const tokenInfo = await isTokenValid(token, secret)
+export const validateAccountActivation = async (token: string, tokenInfo: any) => {
     if(!await isTokenInDB(token, ActionsWithToken.ACTIVATE_ACCOUNT) || !tokenInfo){
         return [
             {
@@ -12,14 +12,52 @@ export const validateAccountActivation = async (token: string, secret: string) =
         ]
     }
 
-    if(Date.now() >= tokenInfo.exp * 1000) {
+    //! nu atat de necesara partea asta...
+
+    const selectedUser = await User.findOne({where: {id: tokenInfo.userId}})
+
+    if(selectedUser){
+        if(!selectedUser.isActivated){
+            return null
+        }
         return [
             {
-              field: "token",
-              message: "The provided token is expired.",
+              field: "user",
+              message: "This account is already activated. You can login.",
             },
         ]
     }
+    return [
+        {
+          field: "user",
+          message: "This account dosn't exist.",
+        },
+    ]
 
-    return null
+    //! --------------------
+}
+
+export const validateAccountActivationResend = async (email: string) => {
+    const selectedUser = await User.findOne({where: {email}})
+
+    if(selectedUser){
+        if(selectedUser.isActivated){
+            return [
+                {
+                  field: "user",
+                  message: "This account is already activated. You can login.",
+                },
+            ]
+        }
+        return null
+        
+    }
+    return [
+        {
+          field: "user",
+          message: "This account dosn't exist.",
+        },
+    ]
+
+    //! --------------------
 }

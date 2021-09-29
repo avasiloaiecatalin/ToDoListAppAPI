@@ -11,6 +11,7 @@ import { UserAction } from "../entities/UserAction";
 import { ACTIVATE_ACCOUNT_EXPIRATION } from "../utils/constants";
 import { sendEmail } from "../utils/sendEmail";
 import { validateAccountActivation } from "./inputs/validators/user/activateAccount";
+import { isTokenValid } from "./inputs/validators/fields/token";
 
 @Resolver(User)
 export class UserResolver {
@@ -70,27 +71,30 @@ export class UserResolver {
     
         //* END REGISTER MUTATION
 
-            //! ACTIVATE ACCOUNT MUTATION
+        //! ACTIVATE ACCOUNT MUTATION
 
     @Mutation(() => UserResponse)
     async activateAccount(
         @Arg("token") token: string,
     ): Promise<UserResponse> {
-        const errors = await validateAccountActivation(token, process.env.ACTIVATE_ACCOUNT_SECRET)
+        const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET)
+        const errors = await validateAccountActivation(token, tokenInfo)
+        console.log(Date.now() - tokenInfo.exp)
         if(errors){
             return {errors}
         }
 
+
         // const response = await getConnection().transaction(async (tm) => {
         // await tm.query(
-        //     `UPDATE user_action SET activateAccount = NULL where userId = ${vf.userId}`
+        //     `UPDATE user_action SET activateAccount = NULL where userId = ${tokenInfo.userId}`
         // )
 
         // await tm.query(
-        //     `UPDATE user SET isActivated = TRUE where id = ${vf.userId}`
+        //     `UPDATE user SET isActivated = TRUE where id = ${tokenInfo.userId}`
         // )
         
-        // return User.findOne({id: vf.userId})
+        // return User.findOne({id: tokenInfo.userId})
         // })
         // return {user: response}
         return {}
@@ -98,4 +102,36 @@ export class UserResolver {
     }
 
     //* END ACTIVATE ACCOUNT MUTATION
+
+    //! REGISTER MUTATION
+
+    @Mutation(() => UserResponse)
+    async resendActivationEmail(
+      @Arg("email") email: string,
+      @Ctx() {req}: MyContext
+    ): Promise<UserResponse> {
+        const errors = await validateRegister(fields)
+        if(errors){
+          return {errors}
+        }
+
+        const hashedPassword = await argon2.hash(fields.password)
+  
+        const response = await getConnection().transaction(async () => {
+          const user = await User.create({
+            email: fields.email,
+            password: hashedPassword
+          }).save()
+          const activateAccount = jwt.sign({userId: user.id}, process.env.ACTIVATE_ACCOUNT_SECRET, {expiresIn: ACTIVATE_ACCOUNT_EXPIRATION})
+          await UserAction.create({activateAccount, user}).save()
+          console.log("A new account has been created at < ", user.email, " >")
+          return {user, activateAccount}
+      })
+  
+      await sendEmail(response.user.email, "Activate your account", `${process.env.CORS_ORIGIN}/activate-account/${response.activateAccount}`)
+      req.session.userId = response.user.id
+      return {user: response.user}
+    }
+
+    //* END REGISTER MUTATION
 }
