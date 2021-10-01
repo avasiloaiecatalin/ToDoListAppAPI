@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken'
-import { ActionsWithToken } from '../../../../types'
-import { UserAction } from '../../../../entities/UserAction'
+import { ActionsWithToken } from '../../../types'
+import { UserAction } from '../../../entities/UserAction'
 
 export const isTokenInDB = async (token: string, usedFor: ActionsWithToken) => {
     var inDB

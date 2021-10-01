@@ -1,0 +1,8 @@
+SCHIMBARE EMAIL:
+
+<- contul este pe adresa X, urmeaza sa fie mutat pe adresa Y ->
+- utilizatorul completeaza adresa Y intr-un camp special, confirma prin parola contului si salveaza
+- se face verificarea pentru disponibilitatea adresei Y, se adauga un token pentru schimbare si se trimite email cu token-ul pe adresa X
+    - acest token e valabil 30 de minute si contine id-ul utilizatorului
+
+- dupa click pe primul token, se genereaza unul nou si se trimite pe adresa Y (aici utilizatorul va trebui sa completeze email-ul vechi si parola pentru a confirma in totalitate schimbarea) 

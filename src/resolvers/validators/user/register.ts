@@ -1,4 +1,4 @@
-import { RegisterInput } from "../../../inputs/UserInputs"
+import { RegisterInput } from "../../inputs/UserInputs"
 import { isEmailUsed, isEmailValid } from "../fields/email"
 import { isConfirmPasswordValid, isPasswordValid } from "../fields/password"
 

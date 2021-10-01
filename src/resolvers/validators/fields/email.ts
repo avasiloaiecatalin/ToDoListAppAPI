@@ -1,4 +1,4 @@
-import { User } from '../../../../entities/User'
+import { User } from '../../../entities/User'
 import validator from 'validator'
 
 export const isEmailValid = (email: string) => {
