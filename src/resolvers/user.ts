@@ -8,14 +8,14 @@ import { UserResponse } from "./responses/UserResponse";
 import { EditAccountInput, LoginInput, RegisterInput } from "./inputs/UserInputs";
 import { validateRegister } from "./validators/user/register";
 import { UserAction } from "../entities/UserAction";
-import { ACTIVATE_ACCOUNT_EXPIRATION } from "../utils/constants";
+import { ACTIVATE_ACCOUNT_EXPIRATION, CHANGE_EMAIL_EXPIRATION } from "../utils/constants";
 import { sendEmail } from "../utils/sendEmail";
 import { validateAccountActivation, validateAccountActivationResend } from "./validators/user/activateAccount";
 import { isTokenValid } from "./validators/fields/token";
 import { BooleanResponse } from "./responses/BooleanResponse";
 import { validateLogin } from "./validators/user/login";
-import { isActivated } from "src/middleware/isActivated";
-import { isAuth } from "src/middleware/isAuth";
+import { isActivated } from "../middleware/isActivated";
+import { isAuth } from "../middleware/isAuth";
 
 @Resolver(User)
 export class UserResolver {
@@ -182,19 +182,6 @@ export class UserResolver {
     //             return true
     //         })
     //         await sendEmail(user.email, "Your password has been changed.", `Not you? Recover your password now.`)
-    //     }
-
-    //     if(image){
-    //         if(user.avatar){
-    //             await removeAvatar(getActualAvatarId(user.avatar))
-    //         }
-    //         const avatar = await uploadAvatar(image)
-    //         await getConnection().transaction(async (tm) => {
-    //             await tm.query(
-    //             `UPDATE user SET avatar = "${avatar}" where id = ${user.id}`
-    //             )
-    //             return true
-    //         })
     //     }
 
     //     const newUser = await User.findOne(req.session.userId)
