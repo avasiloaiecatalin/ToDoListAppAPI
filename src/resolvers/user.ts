@@ -1,21 +1,19 @@
 import { MyContext } from "../types";
-import { Arg, Ctx, FieldResolver, Mutation, Query, Resolver, Root, UseMiddleware } from "type-graphql";
+import { Arg, Ctx, FieldResolver, Mutation, Query, Resolver, Root } from "type-graphql";
 import { User } from "../entities/User";
 import { getConnection } from "typeorm";
 import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { UserResponse } from "./responses/UserResponse";
-import { EditAccountInput, LoginInput, RegisterInput } from "./inputs/UserInputs";
+import { LoginInput, RegisterInput } from "./inputs/UserInputs";
 import { validateRegister } from "./validators/user/register";
 import { UserAction } from "../entities/UserAction";
-import { ACTIVATE_ACCOUNT_EXPIRATION, CHANGE_EMAIL_EXPIRATION } from "../utils/constants";
+import { ACTIVATE_ACCOUNT_EXPIRATION } from "../utils/constants";
 import { sendEmail } from "../utils/sendEmail";
 import { validateAccountActivation, validateAccountActivationResend } from "./validators/user/activateAccount";
 import { isTokenValid } from "./validators/fields/token";
 import { BooleanResponse } from "./responses/BooleanResponse";
 import { validateLogin } from "./validators/user/login";
-import { isActivated } from "../middleware/isActivated";
-import { isAuth } from "../middleware/isAuth";
 
 @Resolver(User)
 export class UserResolver {

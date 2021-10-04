@@ -1,14 +1,11 @@
 import { User } from '../../../entities/User'
 import validator from 'validator'
 
-export const isTitleValid = (title: string) => {
-    if(!validator.isLength(title, {min: 3, max: 255})){
-        return false
+export const isEmailValid = (email: string) => {
+    if(validator.isEmail(email)){
+        return true
     }
-    if(!validator.isAlphanumeric(title)){
-        return false
-    }
-    return true
+    return false
 }
 
 export const isEmailUsed = async (email: string) => {

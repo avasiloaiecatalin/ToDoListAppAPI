@@ -12,6 +12,7 @@ import { Todo } from "./entities/Todo"
 import { User } from "./entities/User"
 import { UserResolver } from "./resolvers/user"
 import { UserAction } from './entities/UserAction'
+import { TodoResolver } from './resolvers/todo'
 
 const main = async() => {
     await createConnection({ 
@@ -45,7 +46,7 @@ const main = async() => {
             ApolloServerPluginLandingPageGraphQLPlayground(),
         ],
         schema: await buildSchema({
-            resolvers: [UserResolver],
+            resolvers: [UserResolver, TodoResolver],
             validate: false
         }),
         context: ({req, res}) => ({ req, res, userLoader: createUserLoader() })
