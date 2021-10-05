@@ -1,0 +1,6 @@
+select t.id as tid, t.createdAt, t.title, t.content, u.id as uid, u.email
+            from todo t, user u
+            where u.id = t.creatorId
+             and t.createdAt < "1970-01-05 02:00:00"
+            order by t.createdAt DESC
+            limit 51

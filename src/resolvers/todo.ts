@@ -1,4 +1,4 @@
-import { Arg, Ctx, Mutation, Resolver, UseMiddleware } from "type-graphql";
+import { Arg, Ctx, Field, Int, Mutation, ObjectType, Query, Resolver, UseMiddleware } from "type-graphql";
 import { isAuth } from "../middleware/isAuth";
 import { isActivated } from "../middleware/isActivated";
 import { CreateTodoInput } from "./inputs/TodoInputs";
@@ -11,6 +11,14 @@ import { validateDeleteTodo } from "./validators/todo/deleteTodo";
 import { validateUpdateTodo } from "./validators/todo/updateTodo";
 import { getConnection } from "typeorm";
 import { validateReadTodo } from "./validators/todo/readTodo";
+
+@ObjectType()
+class PaginatedTodos {
+    @Field(() => [Todo])
+    todos: Todo[]
+    @Field()
+    hasMore: boolean
+}
 
 @Resolver(Todo)
 export class TodoResolver {
@@ -106,9 +114,9 @@ export class TodoResolver {
 
         //* END UPDATE TODO MUTATION
 
-        //! READ TODO MUTATION  
+        //! READ TODO QUERY  
         
-        @Mutation(() => TodoResponse)
+        @Query(() => TodoResponse)
         @UseMiddleware(isActivated)
         @UseMiddleware(isAuth)
         async readTodo(
@@ -127,5 +135,61 @@ export class TodoResolver {
             return {}
         }
 
-        //* END READ TODO MUTATION
+        //* END READ TODO QUERY
+
+        //! READ MULTIPLE TODOS MUTATION
+
+        @Query(() => PaginatedTodos)
+        async todos(
+            @Arg("limit", () => Int) limit: number,
+            @Arg("cursor", () => String, { nullable: true }) cursor: string | null
+        ): Promise<PaginatedTodos> {
+            const realLimit = Math.min(50, limit);
+            const realLimitPlusOne = realLimit + 1;
+            var myCursor
+
+            if (cursor) {
+                //myCursor = new Date(parseInt(cursor));
+                myCursor = new Date(new Date().getTime())
+            }
+
+            console.log("c: ", myCursor)
+            //myCursor = toMySQLDate(myCursor)
+            myCursor = myCursor?.toISOString().slice(0, 19).replace('T', ' ')
+            console.log("d: ", myCursor)
+
+            const q = `select t.id as tid, t.createdAt, t.title, t.content, t.creatorId, u.id as uid, u.email as email
+            from todo t, user u
+            where u.id = t.creatorId
+            ${cursor ? ` and t.createdAt < "${myCursor}"` : ""}
+            order by t.createdAt DESC
+            limit ${realLimitPlusOne}`
+
+            console.log("query < ", q, " >")
+
+            const posts = await getConnection().query(q);
+            const reshapedPosts = posts.map((element: any) => {
+                const reshapedElement = {
+                    id: element.tid,
+                    title: element.title,
+                    content: element.content, 
+                    createdAt: element.createdAt,
+                    creatorId: element.creatorId,
+                    creator: {
+                        id: element.uid,
+                        email: element.email
+                    }
+                }
+                return reshapedElement
+            })
+
+            console.log("r: ", reshapedPosts)
+
+            return {
+                todos: reshapedPosts.slice(0, realLimit),
+                hasMore: reshapedPosts.length >= realLimitPlusOne,
+            };
+        }
+
+        //* END READ MULTIPLE TODOS MUTATION
 }
