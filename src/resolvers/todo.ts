@@ -10,6 +10,7 @@ import { BooleanResponse } from "./responses/BooleanResponse";
 import { validateDeleteTodo } from "./validators/todo/deleteTodo";
 import { validateUpdateTodo } from "./validators/todo/updateTodo";
 import { getConnection } from "typeorm";
+import { validateReadTodo } from "./validators/todo/readTodo";
 
 @Resolver(Todo)
 export class TodoResolver {
@@ -101,53 +102,30 @@ export class TodoResolver {
 
             const todo = await Todo.findOne({where: {id: todoId}})
             return {todo}
-
-            // const user = await User.findOne(req.session.userId)
-            // if(!user){
-            //     return {}
-            // }
-            // if(fields?.email){
-            //     const changeEmail = jwt.sign({userId: user.id, newEmail: fields.email}, process.env.CHANGE_EMAIL_SECRET, {expiresIn: CHANGE_EMAIL_EXPIRATION})
-            //     const rChangeEmail = await getConnection().transaction(async (tm) => {
-            //         await tm.query(
-            //         `UPDATE user_action SET changeEmail = "${changeEmail}" where userId = ${user.id}`
-            //         )
-            //         return true
-            //     })
-            //     if(rChangeEmail){
-            //         await sendEmail(fields.email, "Confirm your email change.", `${process.env.CORS_ORIGIN}/change-email/${changeEmail}`)
-            //     }
-            // }
-
-            // if(fields?.newPassword){
-            //     const hashedPassword = await argon2.hash(fields.newPassword)
-            //     await getConnection().transaction(async (tm) => {
-            //         await tm.query(
-            //         `UPDATE user SET password = "${hashedPassword}" where id = ${user.id}`
-            //         )
-            //         return true
-            //     })
-            //     await sendEmail(user.email, "Your password has been changed.", `Not you? Recover your password now.`)
-            // }
-
-            // if(image){
-            //     if(user.avatar){
-            //         await removeAvatar(getActualAvatarId(user.avatar))
-            //     }
-            //     const avatar = await uploadAvatar(image)
-            //     await getConnection().transaction(async (tm) => {
-            //         await tm.query(
-            //         `UPDATE user SET avatar = "${avatar}" where id = ${user.id}`
-            //         )
-            //         return true
-            //     })
-            // }
-
-            // const newUser = await User.findOne(req.session.userId)
-
-            // return {user: newUser}
-        
         }
 
         //* END UPDATE TODO MUTATION
+
+        //! READ TODO MUTATION  
+        
+        @Mutation(() => TodoResponse)
+        @UseMiddleware(isActivated)
+        @UseMiddleware(isAuth)
+        async readTodo(
+            @Ctx() {req}: MyContext,
+            @Arg("todoId") todoId: number
+        ): Promise<TodoResponse> {
+            const errors = await validateReadTodo(todoId, req.session.userId!)
+            if(errors){
+                return {errors}
+            }
+
+            const todo = await Todo.findOne({where: {id: todoId}})
+            if(todo){
+                return {todo}
+            }
+            return {}
+        }
+
+        //* END READ TODO MUTATION
 }
