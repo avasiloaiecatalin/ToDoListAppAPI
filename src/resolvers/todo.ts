@@ -117,8 +117,8 @@ export class TodoResolver {
         //! READ TODO QUERY  
         
         @Query(() => TodoResponse)
-        @UseMiddleware(isActivated)
         @UseMiddleware(isAuth)
+        @UseMiddleware(isActivated)
         async readTodo(
             @Ctx() {req}: MyContext,
             @Arg("todoId") todoId: number
@@ -140,6 +140,8 @@ export class TodoResolver {
         //! READ MULTIPLE TODOS MUTATION
 
         @Query(() => PaginatedTodos)
+        @UseMiddleware(isAuth)
+        @UseMiddleware(isActivated)
         async todos(
             @Arg("limit", () => Int) limit: number,
             @Arg("cursor", () => String, { nullable: true }) cursor: string | null
@@ -165,8 +167,6 @@ export class TodoResolver {
             order by t.createdAt DESC
             limit ${realLimitPlusOne}`
 
-            console.log("query < ", q, " >")
-
             const posts = await getConnection().query(q);
             const reshapedPosts = posts.map((element: any) => {
                 const reshapedElement = {
@@ -182,8 +182,6 @@ export class TodoResolver {
                 }
                 return reshapedElement
             })
-
-            console.log("r: ", reshapedPosts)
 
             return {
                 todos: reshapedPosts.slice(0, realLimit),

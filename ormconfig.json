@@ -1,0 +1,10 @@
+{
+    "type": "mysql",
+    "host": "localhost",
+    "port": 3306,
+    "username": "root",
+    "password": "",
+    "database": "tododbtest",
+    "entities": ["dist/entities/*.js"],
+    "migrations": ["dist/migrations/*.js"]
+}

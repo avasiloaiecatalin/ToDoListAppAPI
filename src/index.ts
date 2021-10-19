@@ -13,8 +13,10 @@ import { User } from "./entities/User"
 import { UserResolver } from "./resolvers/user"
 import { UserAction } from './entities/UserAction'
 import { TodoResolver } from './resolvers/todo'
+import cors from 'cors'
 
 const main = async() => {
+    // iptables -I INPUT 1 -p tcp --dport 4000 -j ACCEPT
     await createConnection({ 
         type: 'mysql',
         url: process.env.DATABASE_URL,
@@ -23,8 +25,18 @@ const main = async() => {
         entities: [User, UserAction, Todo], 
         migrations: [path.join(__dirname, './migrations/*')]
     })
+    //await con.runMigrations()
 
     const app = express()
+
+    app.set('trust proxy', 1)
+
+    app.use(
+        cors({
+            origin: process.env.CORS_ORIGIN,
+            credentials: true,
+        })
+    )
 
     app.use(
         session({
@@ -61,5 +73,5 @@ const main = async() => {
 }
 
 main().catch((err) => { 
-    console.error(err);
+    console.error(err.stack);
 });

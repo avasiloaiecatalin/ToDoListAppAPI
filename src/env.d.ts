@@ -2,6 +2,7 @@ declare namespace NodeJS {
   interface ProcessEnv {
     DATABASE_URL: string;
     PORT: string;
+    CORS_ORIGIN: string;
     SESSION_SECRET: string;
     ACTIVATE_ACCOUNT_SECRET: string;
     CHANGE_EMAIL_SECRET: string;
