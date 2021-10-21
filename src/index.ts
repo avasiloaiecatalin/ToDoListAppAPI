@@ -15,14 +15,14 @@ import { UserAction } from './entities/UserAction'
 import { TodoResolver } from './resolvers/todo'
 import cors from 'cors'
 
-const main = async() => {
+const main = async () => {
     // iptables -I INPUT 1 -p tcp --dport 4000 -j ACCEPT
-    await createConnection({ 
+    await createConnection({
         type: 'mysql',
         url: process.env.DATABASE_URL,
         logging: false,
         synchronize: true,
-        entities: [User, UserAction, Todo], 
+        entities: [User, UserAction, Todo],
         migrations: [path.join(__dirname, './migrations/*')]
     })
     //await con.runMigrations()
@@ -40,20 +40,20 @@ const main = async() => {
 
     app.use(
         session({
-          name: COOKIE_NAME,
-          cookie: {
-            maxAge: 1000 * 60 * 60 * 24 * 365, // 10 years
-            httpOnly: true,
-            sameSite: "lax", // csrf
-            secure: __prod__ // cookie only works in https
-          },
-          saveUninitialized: false,
-          secret: process.env.SESSION_SECRET,
-          resave: false,
+            name: COOKIE_NAME,
+            cookie: {
+                maxAge: 1000 * 60 * 60 * 24 * 365, // 10 years
+                httpOnly: true,
+                sameSite: "lax", // csrf
+                secure: __prod__ // cookie only works in https
+            },
+            saveUninitialized: false,
+            secret: process.env.SESSION_SECRET,
+            resave: false,
         })
-      )
+    )
 
-      const apolloServer = new ApolloServer({
+    const apolloServer = new ApolloServer({
         plugins: [
             ApolloServerPluginLandingPageGraphQLPlayground(),
         ],
@@ -61,17 +61,17 @@ const main = async() => {
             resolvers: [UserResolver, TodoResolver],
             validate: false
         }),
-        context: ({req, res}) => ({ req, res, userLoader: createUserLoader() })
+        context: ({ req, res }) => ({ req, res, userLoader: createUserLoader() })
     })
 
     await apolloServer.start()
-    apolloServer.applyMiddleware({app, cors: false})
+    apolloServer.applyMiddleware({ app, cors: false })
 
     app.listen(process.env.PORT, () => {
         console.log("API Server started on port", process.env.PORT)
     })
 }
 
-main().catch((err) => { 
+main().catch((err) => {
     console.error(err.stack);
 });
