@@ -67,10 +67,9 @@ export const validateAccountActivationResend = async (selectedUser?: User) => {
     // daca este un token in UserActions pt activare care nu mai este valid
 
     var userActions = await UserAction.findOne({where: {user: selectedUser}})
-    const tokenInfo = await isTokenValid(userActions!.activateAccount, process.env.ACTIVATE_ACCOUNT_SECRET)
+    var tokenInfo = await isTokenValid(userActions!.activateAccount, process.env.ACTIVATE_ACCOUNT_SECRET)
     var validateAsNew = false
-    console.log(tokenInfo)
-    if(!tokenInfo){
+    if(tokenInfo === null){
         const activateAccount = jwt.sign({userId: selectedUser.id}, process.env.ACTIVATE_ACCOUNT_SECRET, {expiresIn: ACTIVATE_ACCOUNT_EXPIRATION})
         await getConnection().transaction(async (tm) => {
             await tm.query(
@@ -79,10 +78,12 @@ export const validateAccountActivationResend = async (selectedUser?: User) => {
             return true
         })
         userActions = await UserAction.findOne({where: {user: selectedUser}})
+        tokenInfo = await isTokenValid(userActions!.activateAccount, process.env.ACTIVATE_ACCOUNT_SECRET)
         validateAsNew = true
     }
 
     // n-au trecut macar X minute de la ultimul token generat pt activare?
+    console.log(await checkTokenDelay(tokenInfo), validateAsNew)
     if(!await checkTokenDelay(tokenInfo) && !validateAsNew){
         return [
             {

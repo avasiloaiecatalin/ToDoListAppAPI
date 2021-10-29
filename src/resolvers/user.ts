@@ -8,7 +8,7 @@ import { UserResponse } from "./responses/UserResponse";
 import { LoginInput, RegisterInput } from "./inputs/UserInputs";
 import { validateRegister } from "./validators/user/register";
 import { UserAction } from "../entities/UserAction";
-import { ACTIVATE_ACCOUNT_EXPIRATION } from "../utils/constants";
+import { ACTIVATE_ACCOUNT_EXPIRATION, COOKIE_NAME } from "../utils/constants";
 import { sendEmail } from "../utils/sendEmail";
 import { validateAccountActivation, validateAccountActivationResend } from "./validators/user/activateAccount";
 import { isTokenValid } from "./validators/fields/token";
@@ -73,14 +73,29 @@ export class UserResolver {
 
     //* END REGISTER MUTATION
 
+    //! GET ACCOUNT BY ACTIVATION TOKEN QUERY
+
+    @Query(() => Number, {nullable: true})
+    async getAccountIDByActivationToken(
+        @Arg("token") token: string,
+    ): Promise<Number> {
+        const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET) 
+        return tokenInfo.userId
+    
+    }
+
+    //* END GET ACCOUNT BY ACTIVATION TOKEN QUERY
+
     //! ACTIVATE ACCOUNT MUTATION
 
     @Mutation(() => UserResponse)
     async activateAccount(
         @Arg("token") token: string,
+        @Ctx() { req }: MyContext 
     ): Promise<UserResponse> {
         const errors = await validateAccountActivation(token)
         const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET)
+
         if(errors){
             return {errors}
         }
@@ -96,6 +111,7 @@ export class UserResolver {
         
         return User.findOne({id: tokenInfo.userId})
         })
+        req.session.userId = response?.id;
         return {user: response}
     
     }
@@ -139,6 +155,24 @@ export class UserResolver {
     }
 
     //* END LOGIN MUTATION
+
+    //! LOGOUT MUTATION
+
+    @Mutation(() => Boolean)
+    logout(@Ctx() { req, res }: MyContext) {
+        return new Promise((resolve) =>
+            req.session.destroy((err) => {
+                res.clearCookie(COOKIE_NAME);
+                if (err) {
+                    resolve(false);
+                    return;
+                }
+                resolve(true);
+            })
+        );
+    }
+
+    //* END LOGOUT MUTATION
 
     //! EDIT ACCOUNT DETAILS MUTATION
 
