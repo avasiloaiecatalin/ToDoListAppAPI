@@ -7,6 +7,7 @@ declare namespace NodeJS {
     SESSION_SECRET: string;
     ACTIVATE_ACCOUNT_SECRET: string;
     CHANGE_EMAIL_SECRET: string;
+    CHANGE_ACCOUNT_DETAILS_SECRET: string;
     EMAIL_USER: string;
     EMAIL_PASSWORD: string;
   }

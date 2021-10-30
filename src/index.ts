@@ -11,9 +11,10 @@ import { createUserLoader } from "./utils/loaders/createUserLoader"
 import { Todo } from "./entities/Todo"
 import { User } from "./entities/User"
 import { UserResolver } from "./resolvers/user"
-import { UserAction } from './entities/UserAction'
 import { TodoResolver } from './resolvers/todo'
 import cors from 'cors'
+import { TokenUsageCase } from './entities/TokenUsageCase'
+import { Token } from './entities/Token'
 
 const main = async () => {
     // iptables -I INPUT 1 -p tcp --dport 4000 -j ACCEPT
@@ -22,7 +23,7 @@ const main = async () => {
         url: process.env.DATABASE_URL,
         logging: false,
         synchronize: true,
-        entities: [User, UserAction, Todo],
+        entities: [User, TokenUsageCase, Token, Todo],
         migrations: [path.join(__dirname, './migrations/*')]
     })
     //await con.runMigrations()

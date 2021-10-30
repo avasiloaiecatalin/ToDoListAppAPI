@@ -2,224 +2,271 @@ import { MyContext } from "../types";
 import { Arg, Ctx, FieldResolver, Mutation, Query, Resolver, Root } from "type-graphql";
 import { User } from "../entities/User";
 import { getConnection } from "typeorm";
-import jwt from 'jsonwebtoken'
 import argon2 from 'argon2'
 import { UserResponse } from "./responses/UserResponse";
 import { LoginInput, RegisterInput } from "./inputs/UserInputs";
 import { validateRegister } from "./validators/user/register";
-import { UserAction } from "../entities/UserAction";
-import { ACTIVATE_ACCOUNT_EXPIRATION, COOKIE_NAME } from "../utils/constants";
+import { ACTIVATE_ACCOUNT_EXPIRATION, COOKIE_NAME, TOKEN_USAGE_CASES } from "../utils/constants";
 import { sendEmail } from "../utils/sendEmail";
-import { validateAccountActivation, validateAccountActivationResend } from "./validators/user/activateAccount";
+import { validateAccountActivation } from "./validators/user/activateAccount";
 import { isTokenValid } from "./validators/fields/token";
 import { BooleanResponse } from "./responses/BooleanResponse";
 import { validateLogin } from "./validators/user/login";
+import { Token } from "../entities/Token";
+import { TokenUsageCase } from "../entities/TokenUsageCase";
+import { createToken, validateAndGenerateUserActionToken } from "./validators/user/generateToken";
 
 @Resolver(User)
 export class UserResolver {
-    @FieldResolver(() => String)
-    email(
-        @Root() user: User, 
-        @Ctx() { req }: MyContext
-    ) {
-      if (req.session.userId === user.id) {
-        return user.email;
-      }
-      return "";
+  @FieldResolver(() => String)
+  email(
+    @Root() user: User,
+    @Ctx() { req }: MyContext
+  ) {
+    if (req.session.userId === user.id) {
+      return user.email;
+    }
+    return "";
+  }
+
+  //! ME QUERY
+
+  @Query(() => User, { nullable: true })
+  me(@Ctx() { req }: MyContext) {
+    if (!req.session.userId) {
+      return null;
     }
 
-    //! ME QUERY
+    return User.findOne(req.session.userId);
+  }
 
-    @Query(() => User, { nullable: true })
-    me(@Ctx() { req }: MyContext) {
-        if (!req.session.userId) {
-        return null;
-        }
-    
-        return User.findOne(req.session.userId);
+  //* END ME QUERY
+
+  //! REGISTER MUTATION
+
+  @Mutation(() => UserResponse)
+  async register(
+    @Arg("fields") fields: RegisterInput,
+    @Ctx() { req }: MyContext
+  ): Promise<UserResponse> {
+    const registerErrors = await validateRegister(fields)
+    if (registerErrors) {
+      return { errors: registerErrors }
     }
 
-    //* END ME QUERY
+    const hashedPassword = await argon2.hash(fields.password)
 
-    //! REGISTER MUTATION
+    const response = await getConnection().transaction(async () => {
+      const user = await User.create({
+        email: fields.email,
+        password: hashedPassword
+      }).save()
+      const tokenUsageCase = await TokenUsageCase.findOne({ where: { usageCase: 'ACTIVATE_ACCOUNT' } })
+      const tokenRow = await createToken(user, ACTIVATE_ACCOUNT_EXPIRATION, tokenUsageCase!, process.env.ACTIVATE_ACCOUNT_SECRET)
+      console.log("A new account has been created at < ", user.email, " >")
+      return { user, activateAccount: tokenRow.token }
+    })
 
-    @Mutation(() => UserResponse)
-    async register(
-      @Arg("fields") fields: RegisterInput,
-      @Ctx() {req}: MyContext
-    ): Promise<UserResponse> {
-        const errors = await validateRegister(fields)
-        if(errors){
-          return {errors}
-        }
+    await sendEmail(response.user.email, "Activate your account", `${process.env.CORS_ORIGIN}/activate-account/${response.activateAccount}`)
+    req.session.userId = response.user.id
+    return { user: response.user }
+  }
 
-        const hashedPassword = await argon2.hash(fields.password)
-  
-        const response = await getConnection().transaction(async () => {
-          const user = await User.create({
-            email: fields.email,
-            password: hashedPassword
-          }).save()
-          const activateAccount = jwt.sign({userId: user.id}, process.env.ACTIVATE_ACCOUNT_SECRET, {expiresIn: ACTIVATE_ACCOUNT_EXPIRATION})
-          await UserAction.create({activateAccount, user}).save()
-          console.log("A new account has been created at < ", user.email, " >")
-          return {user, activateAccount}
+  //* END REGISTER MUTATION
+
+  //! GET ACCOUNT BY ACTIVATION TOKEN QUERY
+
+  @Query(() => Number, { nullable: true })
+  async getAccountIDByActivationToken(
+    @Arg("token") token: string,
+  ): Promise<Number> {
+    const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET)
+    return tokenInfo.userId
+
+  }
+
+  //* END GET ACCOUNT BY ACTIVATION TOKEN QUERY
+
+  //! ACTIVATE ACCOUNT MUTATION
+
+  @Mutation(() => UserResponse)
+  async activateAccount(
+    @Arg("token") token: string,
+    @Ctx() { req }: MyContext
+  ): Promise<UserResponse> {
+    const errors = await validateAccountActivation(token)
+    const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET)
+
+    if (errors) {
+      return { errors }
+    }
+
+    const response = await getConnection().transaction(async (tm) => {
+      await tm.query(
+        //`UPDATE user_action SET activateAccount = NULL where userId = ${tokenInfo.userId}`
+        `DELETE FROM token WHERE userId = ${tokenInfo.userId} AND usageCaseId = (SELECT id FROM token_usage_case WHERE usageCase = "${TOKEN_USAGE_CASES.ACTIVATE_ACCOUNT}")`
+      )
+
+      await tm.query(
+        `UPDATE user SET isActivated = TRUE where id = ${tokenInfo.userId}`
+      )
+
+      return User.findOne({ id: tokenInfo.userId })
+    })
+    req.session.userId = response?.id;
+    return { user: response }
+
+  }
+
+  //* END ACTIVATE ACCOUNT MUTATION
+
+  //! RESEND ACTIVATION EMAIL MUTATION
+
+  @Mutation(() => BooleanResponse)
+  async resendActivationEmail(
+    @Arg("email") email: string
+  ): Promise<BooleanResponse> {
+    const selectedUser = await User.findOne({ where: { email } })
+    const errors = await validateAndGenerateUserActionToken(selectedUser, TOKEN_USAGE_CASES.ACTIVATE_ACCOUNT, process.env.ACTIVATE_ACCOUNT_SECRET)
+    if (errors) {
+      return { errors }
+    }
+    const usageCase = await getConnection().transaction(async (tm) => {
+      return await tm.query(
+        `SELECT * FROM token_usage_case WHERE usageCase = "${TOKEN_USAGE_CASES.ACTIVATE_ACCOUNT}"`
+      )
+    })
+
+    const tokenData = await Token.findOne({ where: { user: selectedUser, usageCase: usageCase[0].id } })
+    if (tokenData) {
+      await sendEmail(email, "Activate your account", `${process.env.CORS_ORIGIN}/activate-account/${tokenData.token}`)
+      await getConnection().transaction(async (tm) => {
+        return await tm.query(
+          `UPDATE token SET resendTimes = "${tokenData.resendTimes + 1}" where id = ${tokenData.id}`
+        )
       })
-  
-      await sendEmail(response.user.email, "Activate your account", `${process.env.CORS_ORIGIN}/activate-account/${response.activateAccount}`)
-      req.session.userId = response.user.id
-      return {user: response.user}
+      return { isDone: true }
     }
+    return { isDone: false }
+  }
 
-    //* END REGISTER MUTATION
+  //* END RESEND ACTIVATION EMAIL MUTATION
 
-    //! GET ACCOUNT BY ACTIVATION TOKEN QUERY
+  //! RECOVER ACCOUNT PASSWORD MUTATION
 
-    @Query(() => Number, {nullable: true})
-    async getAccountIDByActivationToken(
-        @Arg("token") token: string,
-    ): Promise<Number> {
-        const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET) 
-        return tokenInfo.userId
-    
+  @Mutation(() => BooleanResponse)
+  async recoverAccountPassword(
+    @Arg("email") email: string
+  ): Promise<BooleanResponse> {
+    const selectedUser = await User.findOne({ where: { email } })
+    const errors = await validateAndGenerateUserActionToken(selectedUser, TOKEN_USAGE_CASES.CHANGE_PASSWORD, process.env.CHANGE_ACCOUNT_DETAILS_SECRET)
+    if (errors) {
+      return { errors }
     }
+    const usageCase = await getConnection().transaction(async (tm) => {
+      return await tm.query(
+        `SELECT * FROM token_usage_case WHERE usageCase = "${TOKEN_USAGE_CASES.CHANGE_PASSWORD}"`
+      )
+    })
 
-    //* END GET ACCOUNT BY ACTIVATION TOKEN QUERY
-
-    //! ACTIVATE ACCOUNT MUTATION
-
-    @Mutation(() => UserResponse)
-    async activateAccount(
-        @Arg("token") token: string,
-        @Ctx() { req }: MyContext 
-    ): Promise<UserResponse> {
-        const errors = await validateAccountActivation(token)
-        const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET)
-
-        if(errors){
-            return {errors}
-        }
-
-        const response = await getConnection().transaction(async (tm) => {
-        await tm.query(
-            `UPDATE user_action SET activateAccount = NULL where userId = ${tokenInfo.userId}`
+    const tokenData = await Token.findOne({ where: { user: selectedUser, usageCase: usageCase[0].id } })
+    if (tokenData) {
+      await sendEmail(email, "Recover your account password", `${process.env.CORS_ORIGIN}/recover/${tokenData.token}`)
+      await getConnection().transaction(async (tm) => {
+        return await tm.query(
+          `UPDATE token SET resendTimes = "${tokenData.resendTimes + 1}" where id = ${tokenData.id}`
         )
+      })
+      return { isDone: true }
+    }
+    return { isDone: false }
+  }
 
-        await tm.query(
-            `UPDATE user SET isActivated = TRUE where id = ${tokenInfo.userId}`
-        )
-        
-        return User.findOne({id: tokenInfo.userId})
-        })
-        req.session.userId = response?.id;
-        return {user: response}
-    
+  //* END RECOVER ACCOUNT PASSWORD MUTATION
+
+  //! LOGIN MUTATION
+
+  @Mutation(() => UserResponse)
+  async login(
+    @Arg("fields") fields: LoginInput,
+    @Ctx() { req }: MyContext
+  ): Promise<UserResponse> {
+    const errors = await validateLogin(fields)
+    if (errors) {
+      return { errors }
     }
 
-    //* END ACTIVATE ACCOUNT MUTATION
+    const user = await User.findOne({ where: { email: fields.email } })
+    req.session.userId = user?.id;
+    return { user }
+  }
 
-    //! RESEND ACTIVATION EMAIL MUTATION
+  //* END LOGIN MUTATION
 
-    @Mutation(() => BooleanResponse)
-    async resendActivationEmail(
-      @Arg("email") email: string
-    ): Promise<BooleanResponse> {
-      const selectedUser = await User.findOne({where: {email}})
-      const errors = await validateAccountActivationResend(selectedUser)
-      if(errors){
-        return {errors}
-      }
+  //! LOGOUT MUTATION
 
-      const userActions = await UserAction.findOne({where: {user: selectedUser}})
-      await sendEmail(email, "Activate your account", `${process.env.CORS_ORIGIN}/activate-account/${userActions?.activateAccount}`)
-      return {isDone: true}
-    }
-
-    //* END RESEND ACTIVATION EMAIL MUTATION
-
-    //! LOGIN MUTATION
-
-    @Mutation(() => UserResponse)
-    async login(
-        @Arg("fields") fields: LoginInput,
-        @Ctx() {req}: MyContext
-    ): Promise<UserResponse> {
-        const errors = await validateLogin(fields)
-        if(errors){
-            return {errors}
+  @Mutation(() => Boolean)
+  logout(@Ctx() { req, res }: MyContext) {
+    return new Promise((resolve) =>
+      req.session.destroy((err) => {
+        res.clearCookie(COOKIE_NAME);
+        if (err) {
+          resolve(false);
+          return;
         }
+        resolve(true);
+      })
+    );
+  }
 
-        const user = await User.findOne({where: {email: fields.email}})
-        req.session.userId = user?.id;
-        return {user}
-    }
+  //* END LOGOUT MUTATION
 
-    //* END LOGIN MUTATION
+  //! EDIT ACCOUNT DETAILS MUTATION
 
-    //! LOGOUT MUTATION
+  // @Mutation(() => UserResponse)
+  // @UseMiddleware(isActivated)
+  // @UseMiddleware(isAuth)
+  // async editAccount(
+  //     @Ctx() {req}: MyContext,
+  //     @Arg("fields") fields: EditAccountInput,
+  // ): Promise<UserResponse> {
+  //     const errors = await validateEditAccountDetails(fields, req.session.userId)
+  //     if(errors){
+  //         return {errors}
+  //     }
 
-    @Mutation(() => Boolean)
-    logout(@Ctx() { req, res }: MyContext) {
-        return new Promise((resolve) =>
-            req.session.destroy((err) => {
-                res.clearCookie(COOKIE_NAME);
-                if (err) {
-                    resolve(false);
-                    return;
-                }
-                resolve(true);
-            })
-        );
-    }
+  //     const user = await User.findOne(req.session.userId)
+  //     if(!user){
+  //         return {}
+  //     }
+  //     if(fields?.email){
+  //         const changeEmail = jwt.sign({userId: user.id, newEmail: fields.email}, process.env.CHANGE_EMAIL_SECRET, {expiresIn: CHANGE_EMAIL_EXPIRATION})
+  //         const rChangeEmail = await getConnection().transaction(async (tm) => {
+  //             await tm.query(
+  //             `UPDATE user_action SET changeEmail = "${changeEmail}" where userId = ${user.id}`
+  //             )
+  //             return true
+  //         })
+  //         if(rChangeEmail){
+  //             await sendEmail(fields.email, "Confirm your email change.", `${process.env.CORS_ORIGIN}/change-email/${changeEmail}`)
+  //         }
+  //     }
 
-    //* END LOGOUT MUTATION
+  //     if(fields?.newPassword){
+  //         const hashedPassword = await argon2.hash(fields.newPassword)
+  //         await getConnection().transaction(async (tm) => {
+  //             await tm.query(
+  //             `UPDATE user SET password = "${hashedPassword}" where id = ${user.id}`
+  //             )
+  //             return true
+  //         })
+  //         await sendEmail(user.email, "Your password has been changed.", `Not you? Recover your password now.`)
+  //     }
 
-    //! EDIT ACCOUNT DETAILS MUTATION
+  //     const newUser = await User.findOne(req.session.userId)
 
-    // @Mutation(() => UserResponse)
-    // @UseMiddleware(isActivated)
-    // @UseMiddleware(isAuth)
-    // async editAccount(
-    //     @Ctx() {req}: MyContext,
-    //     @Arg("fields") fields: EditAccountInput,
-    // ): Promise<UserResponse> {
-    //     const errors = await validateEditAccountDetails(fields, req.session.userId)
-    //     if(errors){
-    //         return {errors}
-    //     }
+  //     return {user: newUser}
 
-    //     const user = await User.findOne(req.session.userId)
-    //     if(!user){
-    //         return {}
-    //     }
-    //     if(fields?.email){
-    //         const changeEmail = jwt.sign({userId: user.id, newEmail: fields.email}, process.env.CHANGE_EMAIL_SECRET, {expiresIn: CHANGE_EMAIL_EXPIRATION})
-    //         const rChangeEmail = await getConnection().transaction(async (tm) => {
-    //             await tm.query(
-    //             `UPDATE user_action SET changeEmail = "${changeEmail}" where userId = ${user.id}`
-    //             )
-    //             return true
-    //         })
-    //         if(rChangeEmail){
-    //             await sendEmail(fields.email, "Confirm your email change.", `${process.env.CORS_ORIGIN}/change-email/${changeEmail}`)
-    //         }
-    //     }
-
-    //     if(fields?.newPassword){
-    //         const hashedPassword = await argon2.hash(fields.newPassword)
-    //         await getConnection().transaction(async (tm) => {
-    //             await tm.query(
-    //             `UPDATE user SET password = "${hashedPassword}" where id = ${user.id}`
-    //             )
-    //             return true
-    //         })
-    //         await sendEmail(user.email, "Your password has been changed.", `Not you? Recover your password now.`)
-    //     }
-
-    //     const newUser = await User.findOne(req.session.userId)
-
-    //     return {user: newUser}
-    
-    // }
-    //* END EDIT ACCOUNT DETAILS MUTATION
+  // }
+  //* END EDIT ACCOUNT DETAILS MUTATION
 }

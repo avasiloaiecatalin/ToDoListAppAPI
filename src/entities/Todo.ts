@@ -13,9 +13,9 @@ export class Todo extends BaseEntity {
     @Column()
     title!: string;
 
-    @Field({nullable: true})
-    @Column({type: 'text', default: null})
-    content: string;   
+    @Field({ nullable: true })
+    @Column({ type: 'text', default: null })
+    content: string;
 
     @Field(() => String)
     @CreateDateColumn()
@@ -25,7 +25,7 @@ export class Todo extends BaseEntity {
     @Column()
     creatorId: number;
 
-    @Field(() => User) 
+    @Field(() => User)
     @ManyToOne(() => User, (user) => user.todos)
     creator: User
 }
