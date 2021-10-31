@@ -8,13 +8,14 @@ import { LoginInput, RegisterInput } from "./inputs/UserInputs";
 import { validateRegister } from "./validators/user/register";
 import { ACTIVATE_ACCOUNT_EXPIRATION, COOKIE_NAME, TOKEN_USAGE_CASES } from "../utils/constants";
 import { sendEmail } from "../utils/sendEmail";
-import { validateAccountActivation } from "./validators/user/activateAccount";
+import { validateToken } from "./validators/user/activateAccount";
 import { isTokenValid } from "./validators/fields/token";
 import { BooleanResponse } from "./responses/BooleanResponse";
 import { validateLogin } from "./validators/user/login";
 import { Token } from "../entities/Token";
 import { TokenUsageCase } from "../entities/TokenUsageCase";
 import { createToken, validateAndGenerateUserActionToken } from "./validators/user/generateToken";
+import { validateRecoverPassword, validateRecoverPasswordRequest } from "./validators/user/changePassword";
 
 @Resolver(User)
 export class UserResolver {
@@ -94,7 +95,7 @@ export class UserResolver {
     @Arg("token") token: string,
     @Ctx() { req }: MyContext
   ): Promise<UserResponse> {
-    const errors = await validateAccountActivation(token)
+    const errors = await validateToken(token, TOKEN_USAGE_CASES.ACTIVATE_ACCOUNT, process.env.ACTIVATE_ACCOUNT_SECRET)
     const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET)
 
     if (errors) {
@@ -158,10 +159,14 @@ export class UserResolver {
   async recoverAccountPassword(
     @Arg("email") email: string
   ): Promise<BooleanResponse> {
-    const selectedUser = await User.findOne({ where: { email } })
-    const errors = await validateAndGenerateUserActionToken(selectedUser, TOKEN_USAGE_CASES.CHANGE_PASSWORD, process.env.CHANGE_ACCOUNT_DETAILS_SECRET)
+    const errors = validateRecoverPasswordRequest(email)
     if (errors) {
       return { errors }
+    }
+    const selectedUser = await User.findOne({ where: { email } })
+    const tokenErrors = await validateAndGenerateUserActionToken(selectedUser, TOKEN_USAGE_CASES.CHANGE_PASSWORD, process.env.CHANGE_ACCOUNT_DETAILS_SECRET)
+    if (tokenErrors) {
+      return { errors: tokenErrors }
     }
     const usageCase = await getConnection().transaction(async (tm) => {
       return await tm.query(
@@ -177,12 +182,49 @@ export class UserResolver {
           `UPDATE token SET resendTimes = "${tokenData.resendTimes + 1}" where id = ${tokenData.id}`
         )
       })
-      return { isDone: true }
     }
-    return { isDone: false }
+    return { isDone: true }
   }
 
   //* END RECOVER ACCOUNT PASSWORD MUTATION
+
+  //! CHANGE PASSWORD WITH TOKEN MUTATION
+
+  @Mutation(() => UserResponse)
+  async changePasswordWithToken(
+    @Arg("token") token: string,
+    @Arg("password", { nullable: true }) password: string,
+    @Arg("confirmPassword", { nullable: true }) confirmPassword: string,
+    @Ctx() { req }: MyContext
+  ): Promise<UserResponse> {
+    const tokenErrors = await validateToken(token, TOKEN_USAGE_CASES.CHANGE_PASSWORD, process.env.CHANGE_ACCOUNT_DETAILS_SECRET)
+    const tokenInfo = await isTokenValid(token, process.env.CHANGE_ACCOUNT_DETAILS_SECRET)
+    if (tokenErrors) {
+      return { errors: tokenErrors }
+    }
+
+    const errors = validateRecoverPassword(password, confirmPassword)
+    if (errors) {
+      return { errors }
+    }
+
+    const hashedPassword = await argon2.hash(password)
+    const response = await getConnection().transaction(async (tm) => {
+      await tm.query(
+        `DELETE FROM token WHERE userId = ${tokenInfo.userId} AND usageCaseId = (SELECT id FROM token_usage_case WHERE usageCase = "${TOKEN_USAGE_CASES.CHANGE_PASSWORD}")`
+      )
+      await tm.query(
+        `UPDATE user SET password = "${hashedPassword}" where id = ${tokenInfo.userId}`
+      )
+
+      return User.findOne({ id: tokenInfo.userId })
+    })
+    req.session.userId = response?.id;
+    return { user: response }
+
+  }
+
+  //* END CHANGE PASSWORD WITH TOKEN MUTATION
 
   //! LOGIN MUTATION
 

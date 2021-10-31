@@ -3,12 +3,12 @@ import { User } from "../../../entities/User"
 import { isTokenInDB, isTokenValid } from "../fields/token"
 
 
-export const validateAccountActivation = async (token: string) => {
-    const tokenInfo = await isTokenValid(token, process.env.ACTIVATE_ACCOUNT_SECRET)
-    if (!await isTokenInDB(token, TOKEN_USAGE_CASES.ACTIVATE_ACCOUNT) || !tokenInfo) {
+export const validateToken = async (token: string, action: string, secret: string) => {
+    const tokenInfo = await isTokenValid(token, secret)
+    if (!await isTokenInDB(token, action) || !tokenInfo) {
         return [
             {
-                field: "token",
+                field: "user",
                 message: "The provided token is invalid.",
             },
         ]
@@ -18,23 +18,27 @@ export const validateAccountActivation = async (token: string) => {
 
     const selectedUser = await User.findOne({ where: { id: tokenInfo.userId } })
 
-    if (selectedUser) {
-        if (!selectedUser.isActivated) {
-            return null
-        }
+    if (!selectedUser) {
         return [
             {
                 field: "user",
-                message: "This account is already activated. You can login.",
+                message: "This account dosn't exist.",
             },
         ]
     }
-    return [
-        {
-            field: "user",
-            message: "This account dosn't exist.",
-        },
-    ]
+
+    if (action === TOKEN_USAGE_CASES.ACTIVATE_ACCOUNT) {
+        if (selectedUser.isActivated) {
+            return [
+                {
+                    field: "user",
+                    message: "This account is already activated. You can login.",
+                },
+            ]
+        }
+    }
+
+    return null
 
     //! --------------------
 }

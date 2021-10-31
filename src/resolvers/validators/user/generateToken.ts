@@ -24,12 +24,7 @@ const deleteToken = async (tokenRow: Token, usageCase: any) => {
 export const validateAndGenerateUserActionToken = async (selectedUser: User | undefined, action: string, secret: string) => {
     // contul al carui email este prezentat sa existe si sa fie neactivat
     if (!selectedUser) {
-        return [
-            {
-                field: "user",
-                message: "This account dosn't exist.",
-            },
-        ]
+        return null
     }
 
     if (action === TOKEN_USAGE_CASES.ACTIVATE_ACCOUNT) {
@@ -69,7 +64,7 @@ export const validateAndGenerateUserActionToken = async (selectedUser: User | un
         return [
             {
                 field: "user",
-                message: "You have to wait some time before being able to request another activation token.",
+                message: "You have to wait some time before being able to make another request.",
             },
         ]
     }
