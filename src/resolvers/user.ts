@@ -176,7 +176,7 @@ export class UserResolver {
 
     const tokenData = await Token.findOne({ where: { user: selectedUser, usageCase: usageCase[0].id } })
     if (tokenData) {
-      await sendEmail(email, "Recover your account password", `${process.env.CORS_ORIGIN}/recover/${tokenData.token}`)
+      await sendEmail(email, "Recover your account password", `${process.env.CORS_ORIGIN}/change-password/${tokenData.token}`)
       await getConnection().transaction(async (tm) => {
         return await tm.query(
           `UPDATE token SET resendTimes = "${tokenData.resendTimes + 1}" where id = ${tokenData.id}`

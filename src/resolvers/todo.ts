@@ -1,6 +1,5 @@
 import { Arg, Ctx, Field, Int, Mutation, ObjectType, Query, Resolver, UseMiddleware } from "type-graphql";
 import { isAuth } from "../middleware/isAuth";
-import { isActivated } from "../middleware/isActivated";
 import { CreateTodoInput } from "./inputs/TodoInputs";
 import { MyContext } from "../types";
 import { TodoResponse } from "./responses/TodoResponse";
@@ -11,183 +10,258 @@ import { validateDeleteTodo } from "./validators/todo/deleteTodo";
 import { validateUpdateTodo } from "./validators/todo/updateTodo";
 import { getConnection } from "typeorm";
 import { validateReadTodo } from "./validators/todo/readTodo";
+import { checkAAR } from "./validators/user/checkAAR";
+import { User } from "../entities/User";
 
 @ObjectType()
 class PaginatedTodos {
-    @Field(() => [Todo])
-    todos: Todo[]
-    @Field()
-    hasMore: boolean
+    @Field(() => [Todo], { nullable: true })
+    todos?: Todo[]
+    @Field(() => Boolean, { nullable: true })
+    hasMore?: boolean
 }
 
 @Resolver(Todo)
 export class TodoResolver {
-        //! CREATE TODO MUTATION
-        @Mutation(() => TodoResponse)
-        @UseMiddleware(isAuth)
-        @UseMiddleware(isActivated)
-        async createTodo(
-            @Arg("fields") fields: CreateTodoInput,
-            @Ctx() { req }: MyContext
-        ): Promise<TodoResponse> {
-            const errors = await validateCreateTodo(fields)
-            if(errors){
-                return {errors}
-            }
-    
-            const todo = await Todo.create({
-                ...fields,
-                creatorId: req.session.userId,
-            }).save()
-    
-            return {todo}
+    //! CREATE TODO MUTATION
+    @Mutation(() => TodoResponse)
+    async createTodo(
+        @Arg("fields") fields: CreateTodoInput,
+        @Ctx() { req }: MyContext
+    ): Promise<TodoResponse> {
+        const selectedUser = await User.findOne({ where: { id: req.session.userId } })
+        const aarErrors = await checkAAR(true, selectedUser, true, false)
+        if (aarErrors) {
+            return { errors: aarErrors }
+        }
+        const errors = await validateCreateTodo(fields)
+        if (errors) {
+            return { errors }
         }
 
-        //* END CREATE TODO MUTATION
+        const todo = await Todo.create({
+            ...fields,
+            creatorId: req.session.userId,
+        }).save()
+        return { todo }
+    }
 
-        //! DELETE TODO MUTATION
-        @Mutation(() => BooleanResponse)
-        @UseMiddleware(isAuth)
-        @UseMiddleware(isActivated)
-        async deleteTodo(
-            @Arg("id") id: number,
-            @Ctx() { req }: MyContext
-        ): Promise<BooleanResponse> {
-            const errors = await validateDeleteTodo(id, req.session.userId!)
-            if(errors){
-                return {errors}
+    //* END CREATE TODO MUTATION
+
+    //! DELETE TODO MUTATION
+    @Mutation(() => BooleanResponse)
+    async deleteTodo(
+        @Arg("id") id: number,
+        @Ctx() { req }: MyContext
+    ): Promise<BooleanResponse> {
+        const selectedUser = await User.findOne({ where: { id: req.session.userId } })
+        const aarErrors = checkAAR(true, selectedUser, true, false)
+        if (aarErrors) {
+            return { errors: aarErrors }
+        }
+        const errors = await validateDeleteTodo(id, selectedUser!.id)
+        if (errors) {
+            return { errors }
+        }
+
+        try {
+            await Todo.delete({ id, creatorId: selectedUser!.id })
+            return {
+                isDone: true
             }
-    
-            try{
-                await Todo.delete({id, creatorId: req.session.userId})
-                return {
-                    isDone: true
-                }
-            } catch(err){
-                return {
-                    isDone: false
-                }
+        } catch (err) {
+            return {
+                isDone: false
             }
         }
-        //* END DELETE TODO MUTATION
+    }
+    //* END DELETE TODO MUTATION
 
-        //! UPDATE TODO MUTATION
-        
-        @Mutation(() => TodoResponse)
-        @UseMiddleware(isActivated)
-        @UseMiddleware(isAuth)
-        async updateTodo(
-            @Ctx() {req}: MyContext,
-            @Arg("fields") fields: CreateTodoInput,
-            @Arg("todoId") todoId: number
-        ): Promise<TodoResponse> {
-            const errors = await validateUpdateTodo(fields, todoId, req.session.userId!)
-            if(errors){
-                return {errors}
-            }
+    //! UPDATE TODO MUTATION
 
-            // const todo = await Todo.findOne({where: {id: todoId}})
-            var updateString = ''
-            var firstField = false
-            if(fields.title){
-                updateString += (firstField ? `, `: ``) + `title = "${fields.title}"`
-                firstField = true
-            }
+    @Mutation(() => TodoResponse)
+    async updateTodo(
+        @Ctx() { req }: MyContext,
+        @Arg("fields") fields: CreateTodoInput,
+        @Arg("todoId") todoId: number
+    ): Promise<TodoResponse> {
+        const selectedUser = await User.findOne({ where: { id: req.session.userId } })
+        const aarErrors = checkAAR(true, selectedUser, true, false)
+        if (aarErrors) {
+            return { errors: aarErrors }
+        }
+        const errors = await validateUpdateTodo(fields, todoId, selectedUser!.id)
+        if (errors) {
+            return { errors }
+        }
 
-            if(fields.content){
-                updateString += (firstField ? `, `: ``) + `content = "${fields.content}"`
-                firstField = true
-            }
+        // const todo = await Todo.findOne({where: {id: todoId}})
+        var updateString = ''
+        var firstField = false
+        if (fields.title) {
+            updateString += (firstField ? `, ` : ``) + `title = "${fields.title}"`
+            firstField = true
+        }
 
-            if(firstField){
-                await getConnection().transaction(async (tm) => {
-                    await tm.query(
+        if (fields.content) {
+            updateString += (firstField ? `, ` : ``) + `content = "${fields.content}"`
+            firstField = true
+        }
+
+        if (firstField) {
+            await getConnection().transaction(async (tm) => {
+                await tm.query(
                     `UPDATE todo SET ${updateString} WHERE id = ${todoId}`
-                    )
-                    return true
-                })
-            }
-
-            const todo = await Todo.findOne({where: {id: todoId}})
-            return {todo}
+                )
+                return true
+            })
         }
 
-        //* END UPDATE TODO MUTATION
+        const todo = await Todo.findOne({ where: { id: todoId } })
+        return { todo }
+    }
 
-        //! READ TODO QUERY  
-        
-        @Query(() => TodoResponse)
-        @UseMiddleware(isAuth)
-        @UseMiddleware(isActivated)
-        async readTodo(
-            @Ctx() {req}: MyContext,
-            @Arg("todoId") todoId: number
-        ): Promise<TodoResponse> {
-            const errors = await validateReadTodo(todoId, req.session.userId!)
-            if(errors){
-                return {errors}
-            }
+    //* END UPDATE TODO MUTATION
 
-            const todo = await Todo.findOne({where: {id: todoId}})
-            if(todo){
-                return {todo}
-            }
-            return {}
+    //! READ TODO QUERY  
+
+    @Query(() => TodoResponse)
+    async readTodo(
+        @Ctx() { req }: MyContext,
+        @Arg("todoId") todoId: number
+    ): Promise<TodoResponse> {
+        const selectedUser = await User.findOne({ where: { id: req.session.userId } })
+        const aarErrors = checkAAR(true, selectedUser, true, false)
+        if (aarErrors) {
+            return { errors: aarErrors }
+        }
+        const errors = await validateReadTodo(todoId, selectedUser!.id)
+        if (errors) {
+            return { errors }
         }
 
-        //* END READ TODO QUERY
+        const todo = await Todo.findOne({ where: { id: todoId } })
+        if (todo) {
+            return { todo }
+        }
+        return {}
+    }
 
-        //! READ MULTIPLE TODOS MUTATION
+    //* END READ TODO QUERY
 
-        @Query(() => PaginatedTodos)
-        @UseMiddleware(isAuth)
-        @UseMiddleware(isActivated)
-        async todos(
-            @Arg("limit", () => Int) limit: number,
-            @Arg("cursor", () => String, { nullable: true }) cursor: string | null
-        ): Promise<PaginatedTodos> {
-            const realLimit = Math.min(50, limit);
-            const realLimitPlusOne = realLimit + 1;
-            var myCursor
+    //! READ MULTIPLE TODOS MUTATION
 
-            if (cursor) {
-                //myCursor = new Date(parseInt(cursor));
-                myCursor = new Date(new Date().getTime())
-            }
+    @Query(() => PaginatedTodos)
+    @UseMiddleware(isAuth)
+    async todos2(
+        @Ctx() { req }: MyContext,
+        @Arg("limit", () => Int) limit: number,
+        @Arg("cursor", () => String, { nullable: true }) cursor: string | null
+    ): Promise<PaginatedTodos> {
+        const realLimit = Math.min(50, limit);
+        const realLimitPlusOne = realLimit + 1;
+        var myCursor
 
-            console.log("c: ", myCursor)
-            //myCursor = toMySQLDate(myCursor)
-            myCursor = myCursor?.toISOString().slice(0, 19).replace('T', ' ')
-            console.log("d: ", myCursor)
+        if (cursor) {
+            //myCursor = new Date(parseInt(cursor));
+            myCursor = new Date(new Date().getTime())
+        }
 
-            const q = `select t.id as tid, t.createdAt, t.title, t.content, t.creatorId, u.id as uid, u.email as email
+        console.log("c: ", myCursor)
+        //myCursor = toMySQLDate(myCursor)
+        myCursor = myCursor?.toISOString().slice(0, 19).replace('T', ' ')
+        console.log("d: ", myCursor)
+
+        const q = `select t.id as tid, t.createdAt, t.title, t.content, t.creatorId, u.id as uid, u.email as email
             from todo t, user u
-            where u.id = t.creatorId
+            where u.id = t.creatorId and t.creatorId = "${req.session.userId}"
             ${cursor ? ` and t.createdAt < "${myCursor}"` : ""}
             order by t.createdAt DESC
             limit ${realLimitPlusOne}`
 
-            const posts = await getConnection().query(q);
-            const reshapedPosts = posts.map((element: any) => {
-                const reshapedElement = {
-                    id: element.tid,
-                    title: element.title,
-                    content: element.content, 
-                    createdAt: element.createdAt,
-                    creatorId: element.creatorId,
-                    creator: {
-                        id: element.uid,
-                        email: element.email
-                    }
+        const posts = await getConnection().query(q);
+        const reshapedPosts = posts.map((element: any) => {
+            const reshapedElement = {
+                id: element.tid,
+                title: element.title,
+                content: element.content,
+                createdAt: element.createdAt,
+                creatorId: element.creatorId,
+                creator: {
+                    id: element.uid,
+                    email: element.email
                 }
-                return reshapedElement
-            })
+            }
+            return reshapedElement
+        })
 
-            return {
-                todos: reshapedPosts.slice(0, realLimit),
-                hasMore: reshapedPosts.length >= realLimitPlusOne,
-            };
+        return {
+            todos: reshapedPosts.slice(0, realLimit),
+            hasMore: reshapedPosts.length >= realLimitPlusOne,
+        };
+    }
+
+    //* END READ MULTIPLE TODOS MUTATION
+
+    @Query(() => PaginatedTodos)
+    async todos(
+        @Ctx() { req }: MyContext,
+        @Arg("limit", () => Int) limit: number,
+        @Arg("cursor", () => String, { nullable: true }) cursor: string | null
+    ): Promise<PaginatedTodos> {
+        const selectedUser = await User.findOne({ where: { id: req.session.userId } })
+        const aarErrors = checkAAR(true, selectedUser, true, false)
+        if (aarErrors) {
+            return { todos: [] }
+        }
+        const realLimit = Math.min(50, limit);
+        const realLimitPlusOne = realLimit + 1;
+        var myCursor
+
+        if (cursor) {
+            myCursor = new Date(parseInt(cursor));
         }
 
-        //* END READ MULTIPLE TODOS MUTATION
+        function twoDigits(d: number) {
+            if (0 <= d && d < 10) return "0" + d.toString();
+            if (-10 < d && d < 0) return "-0" + (-1 * d).toString();
+            return d.toString();
+        }
+
+        const toMySQLDate = function (jsDate: Date | undefined) {
+            if (jsDate === undefined) {
+                return jsDate
+            }
+            return jsDate.getFullYear() + "-" + twoDigits(1 + jsDate.getMonth()) + "-" + twoDigits(jsDate.getDay()) + " " + twoDigits(jsDate.getHours()) + ":" + twoDigits(jsDate.getMinutes()) + ":" + twoDigits(jsDate.getSeconds());
+        };
+
+        myCursor = toMySQLDate(myCursor)
+        const q = `select p.id as pid, p.createdAt, p.title, p.content, p.creatorId, u.id as uid, u.email
+        from todo p, user u
+        where u.id = ${req.session.userId} AND u.id = p.creatorId
+        ${cursor ? ` and p.createdAt < "${myCursor}"` : ""}
+        order by p.createdAt DESC
+        limit ${realLimitPlusOne}`
+        console.log(q)
+        const posts = await getConnection().query(q);
+        const reshapedPosts = posts.map((element: any) => {
+            const reshapedElement = {
+                id: element.pid,
+                title: element.title,
+                content: element.content,
+                createdAt: toMySQLDate(element.createdAt),
+                creatorId: element.creatorId,
+                creator: {
+                    id: element.uid,
+                    email: element.email
+                }
+            }
+            return reshapedElement
+        })
+
+        return {
+            todos: reshapedPosts.slice(0, realLimit),
+            hasMore: reshapedPosts.length >= realLimitPlusOne,
+        };
+    }
 }

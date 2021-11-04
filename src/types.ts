@@ -3,7 +3,8 @@ import { Session, SessionData } from "express-session";
 
 export type MyContext = {
     req: Request & { session: Session & Partial<SessionData> & { userId?: number } },
-    res: Response
+    res: Response,
+    err: Error
 }
 
 export enum ActionsWithToken {
